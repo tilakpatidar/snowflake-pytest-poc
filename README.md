@@ -60,3 +60,38 @@ SNOWFLAKE_USER=tilakpr SNOWFLAKE_PASSWORD='<password>' SNOWFLAKE_ACCOUNT='jn2944
 SNOWFLAKE_USER=tilakpr SNOWFLAKE_PASSWORD='<password>' SNOWFLAKE_ACCOUNT='jn29444.southeast-asia.azure' py.test --dist=loadscope --tx '2*popen//python=python3.9' -s tests/test_features.py
 
 ```
+
+
+#### Understanding data-type mismatch errors
+
+For assertion of tables we are using pandas. Differences are shown in-terms of pandas dataframe.
+
+Below snowflake to pandas type table can help in understanding the errors:
+
+| Snowflake datatype | Pandas datatype |
+|--------------------|-----------------|
+| BIGINT             | int64           |
+| BINARY             | bytes           |
+| BOOLEAN            | bool            |
+| CHAR               | str             |
+| CHARACTER          | str             |
+| DATE               | object          |
+| DATETIME           | object          |
+| DEC                | object          |
+| DECIMAL            | object          |
+| DOUBLE             | float64         |
+| FIXED              | object          |
+| FLOAT              | float64         |
+| INT                | int64           |
+| INTEGER            | int64           |
+| NUMBER             | object          |
+| REAL               | float64         |
+| BYTEINT            | int64           |
+| SMALLINT           | int64           |
+| STRING             | str             |
+| TEXT               | str             |
+| TIME               | object          |
+| TIMESTAMP          | object          |
+| TINYINT            | int64           |
+| VARBINARY          | bytes           |
+| VARCHAR            | str             |
