@@ -7,27 +7,38 @@ Refer `tests/features/example.feature` for a sample BDD test.
 Add bdd parsers in `tests/conftest.py`
 
 #### How it works
+
 - Using snowflake temporary tables, real table is shadowed with setup data for the entire session.
-- Tables in below test are pandas dataframe, data is read into pandas dataframe and asserted against the expected pandas dataframe.
+- If table does not exist, then a temporary table is created.
+- Data is read into pandas dataframe and asserted against the expected pandas dataframe.
+
 ```gherkin
 Feature: ExampleFeature for snowflake testing
 
   Scenario: example_scenario
     Given a snowflake connection
     When a table called "SNOWFLAKE_LIQUIBASE.PUBLIC.DEPARTMENT" has
-      | id: int64 | name: str | active:bool |
-      | 1         | tilak     | 1           |
+      | dept_id: INTEGER | dept_name: STRING      |
+      | 1                | "Computer Science"     |
+      | 2                | "Software Engineering" |
+    When a table called "SNOWFLAKE_LIQUIBASE.PUBLIC.PEOPLE" has
+      | people_id: INTEGER | name: STRING | dept_id: INTEGER |
+      | 10                 | "tilak"      | 1                |
     Then a sql script "./sql/example.sql" runs and the result is
-      | id: int64 | name: str | active:bool |
-      | 1         | tilak     | 1           |
+      | people_id: INTEGER | name: STRING | dept_id: INTEGER | dept_name: STRING  |
+      | 10                 | "tilak"      | 1                | "Computer Science" |
 ```
-- `id: int64` In this header, `id` is the column name and `int64` is the pandas data type.
+
+- `dept_id: INTEGER` In this header, `dept_id` is the column name and `INTEGER` is the snowflake data type.
 - The step `a table called "<fully_qualified_table_name>" has`
- Replaces the existing table with a `temporary` table. And adds data to the temporary table.
-This shadows the existing table in snowflake for the entire session. Any changes done to the temporary table does not reflect on the actual database.
-- The step `Then a sql script "<sql_script_path>" runs and the result is` This runs the sql script and compares the output with given dataframe.
+  Replaces the existing table with a `temporary` table. And adds data to the temporary table. This shadows the existing
+  table in snowflake for the entire session. Any changes done to the temporary table does not reflect on the actual
+  database.
+- The step `Then a sql script "<sql_script_path>" runs and the result is` This runs the sql script and compares the
+  output with given dataframe.
 
 #### Setup the POC
+
 ```shell
 # If you have conda installed
 conda environment -f environment.yml
@@ -35,6 +46,7 @@ conda environment -f environment.yml
 pip install -r requirements.txt
 
 ```
+
 #### Run tests
 
 ```shell

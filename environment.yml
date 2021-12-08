@@ -9,6 +9,5 @@ dependencies:
   - pytest-bdd=3.2.1
   - pytest-xdist=2.4.0
   - pip:
-      - snowflake-connector-python[pandas]==2.7.1
       - snowflake-sqlalchemy==1.3.2
       - SQLAlchemy==1.4.27

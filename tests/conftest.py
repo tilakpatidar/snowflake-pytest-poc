@@ -1,13 +1,13 @@
 import os
-import re
 
-import numpy as np
+import numpy
 import pandas as pd
 import pytest
 from pandas.util.testing import assert_frame_equal
 from pytest_bdd import then, when, parsers, given
 from snowflake.sqlalchemy import URL
-from sqlalchemy import create_engine
+from snowflake.sqlalchemy.snowdialect import ischema_names as snowflake_to_sql_alchemy_types
+from sqlalchemy import create_engine, Column, Table, MetaData
 
 snowflake_user = os.environ['SNOWFLAKE_USER']
 snowflake_password = os.environ['SNOWFLAKE_PASSWORD']
@@ -43,15 +43,20 @@ def assert_frame_equal_with_sort(results, expected, key_columns, dtype_check=Tru
                        check_index_type=False, check_dtype=dtype_check)
 
 
-def string_to_type(tname):
-    return np.dtype(tname)
+def snowflake_type_to_dtype(tname):
+    return numpy.dtype(snowflake_type_to_sqltype(tname).python_type)
 
 
-def process_cells(cols, cells):
-    data = list(zip(cols, cells))
-    for ((_, ftype), cell) in data:
+def snowflake_type_to_sqltype(tname):
+    return snowflake_to_sql_alchemy_types.get(tname.strip())()
+
+
+def process_cells(cells):
+    for cell in cells:
         cell = cell.strip()
-        if cell == "<null>":
+        if cell[0] == '"' and cell[-1] == '"':
+            yield cell[1:-1]
+        elif cell == "<null>":
             yield None
         else:
             yield cell
@@ -60,59 +65,63 @@ def process_cells(cols, cells):
 def table_to_df(table):
     heading = table.split("\n")[0]
     col_names_with_types = list(map(lambda header: header.strip(), heading.split("|")[1:-1]))
-    col_name_type_pairs = []
+    col_name_dtype_pairs = []
+    col_name_sqltype_pairs = []
     for col_name_with_type in col_names_with_types:
         if len(col_name_with_type.split(':')) != 2:
             raise ValueError(
                 f"You must specify name AND data type for columns like this 'my_field:string' at {col_name_with_type}")
         col_name, col_type = col_name_with_type.split(':')
-        col_name_type_pairs.append((col_name.strip(), string_to_type(col_type.strip())))
+        col_name_dtype_pairs.append((col_name.strip(), snowflake_type_to_dtype(col_type.strip())))
+        col_name_sqltype_pairs.append((col_name.strip(), snowflake_type_to_sqltype(col_type.strip())))
     table_body = table.split("\n")[1:]
-    rows = [list(process_cells(col_name_type_pairs, row.split("|")[1:-1])) for row in table_body]
+    rows = [list(process_cells(row.split("|")[1:-1])) for row in table_body]
 
     df = pd.DataFrame(
         rows,
-        columns=[col_name_type_pair[0] for col_name_type_pair in col_name_type_pairs],
+        columns=[col_name_type_pair[0] for col_name_type_pair in col_name_dtype_pairs],
     )
+
     df = df.astype(
-        dict(col_name_type_pairs)
+        dict(col_name_dtype_pairs)
     )
 
-    return df
+    return df, dict(col_name_dtype_pairs), col_name_sqltype_pairs
 
 
-@when(parsers.re('a table called "(?P<table_name>.+)" has\s+(?P<table>[\s\S]+)'))
+@when(parsers.re(r'a table called "(?P<table_name>.+)" has\s+(?P<table>[\s\S]+)'))
 def table_create_fixture(snowflake_sql_conn, table_name, table):
-    df = table_to_df(table)
+    df, col_name_dtype_pairs, col_name_sqltype_pairs = table_to_df(table)
     db_name, schema_name, tb_name = table_name.split(".")
-    if snowflake_sql_conn.dialect.has_table(snowflake_sql_conn, table_name):
-        print(f"Table already exists {table_name}, creating temp table to shadow it")
-        rows = snowflake_sql_conn.execute(f"select GET_DDL('table', '{table_name}')")
-        temp_ddl_stmt = re.sub(r'TABLE.*\(', f"TABLE {table_name} (", next(rows)[0].replace("or replace", "temporary"))
-        snowflake_sql_conn.execute(temp_ddl_stmt)
-        snowflake_sql_conn.execute(f"USE DATABASE \"{db_name}\"")
-        df.to_sql(con=snowflake_sql_conn,
-                  schema=schema_name,
-                  name=tb_name,
-                  if_exists="append",
-                  method="multi",
-                  index=False)
-    else:
-        print(f"Table does not exists {table_name}, create temp table to shadow it")
-        snowflake_sql_conn.execute(f"USE DATABASE \"{db_name}\"")
-        df.to_sql(con=snowflake_sql_conn,
-                  schema=schema_name,
-                  name=tb_name,
-                  method="multi",
-                  index=False)
+
+    cols = [
+        Column(col_name, col_type)
+        for col_name, col_type in col_name_sqltype_pairs
+    ]
+    snowflake_sql_conn.execute(f"USE DATABASE \"{db_name}\"")
+
+    metadata = MetaData(bind=snowflake_sql_conn)
+    temp_table = Table(tb_name,
+                       metadata,
+                       *cols,
+                       schema=schema_name,
+                       prefixes=['TEMPORARY'],
+                       )
+
+    temp_table.create(bind=snowflake_sql_conn)
+    df.to_sql(con=snowflake_sql_conn,
+              schema=schema_name,
+              name=tb_name,
+              if_exists="append",
+              method="multi",
+              index=False)
 
 
-@then(parsers.re('a sql script "(?P<script_path>.+)" runs and the result is\n(?P<table>[\s\S]+)'))
+@then(parsers.re(r'a sql script "(?P<script_path>.+)" runs and the result is\n(?P<table>[\s\S]+)'))
 def assert_table_contains(snowflake_sql_conn, script_path, table):
     sql = open(script_path, "r").read()
     actual_df = pd.read_sql(sql, snowflake_sql_conn)
-    print(actual_df)
-    expected_df = table_to_df(table)
+    expected_df, _, _ = table_to_df(table)
 
     print("\n\n\nEXPECTED schema")
     print(expected_df.dtypes)
